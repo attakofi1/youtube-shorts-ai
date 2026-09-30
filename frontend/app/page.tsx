@@ -1,45 +1,66 @@
 "use client";
 
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+type Clip = { file: string; start: number; end: number; score: number; text: string; rank: number };
 
 export default function Home() {
   const [url, setUrl] = useState("");
   const [clips, setClips] = useState(10);
   const [duration, setDuration] = useState("20-60");
   const [status, setStatus] = useState("");
+  const [progress, setProgress] = useState(0);
+  const [jobId, setJobId] = useState("");
+  const [results, setResults] = useState<Clip[]>([]);
   const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!jobId) return;
+    let stopped = false;
+    const poll = async () => {
+      try {
+        const response = await fetch(`${API}/api/jobs/${jobId}`, { cache: "no-store" });
+        const data = await response.json();
+        if (stopped) return;
+        setProgress(data.progress || (data.status === "SUCCESS" ? 100 : 0));
+        setStatus(data.message || data.status || "Processing...");
+        if (data.status === "SUCCESS") {
+          setResults(data.result?.clips || []);
+          setBusy(false);
+          return;
+        }
+        if (data.status === "FAILURE") {
+          setBusy(false);
+          setStatus(data.error || "Processing failed");
+          return;
+        }
+        window.setTimeout(poll, 1800);
+      } catch {
+        if (!stopped) window.setTimeout(poll, 3000);
+      }
+    };
+    poll();
+    return () => { stopped = true; };
+  }, [jobId]);
 
   async function submit(e: FormEvent) {
     e.preventDefault();
-    setBusy(true);
-    setStatus("Starting AI processing...");
+    setBusy(true); setResults([]); setProgress(0); setStatus("Queueing your video...");
     try {
       const [min, max] = duration.split("-").map(Number);
-      const response = await fetch(`${API}/api/jobs`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ youtube_url: url, clips, min_duration: min, max_duration: max }),
-      });
+      const response = await fetch(`${API}/api/jobs`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ youtube_url: url, clips, min_duration: min, max_duration: max }) });
       const data = await response.json();
       if (!response.ok) throw new Error(data.detail || "Failed to create job");
-      setStatus(`Job ${data.job_id} queued. Your Shorts are being generated.`);
+      setJobId(data.job_id);
     } catch (error) {
-      setStatus(error instanceof Error ? error.message : "Something went wrong");
-    } finally {
-      setBusy(false);
+      setBusy(false); setStatus(error instanceof Error ? error.message : "Something went wrong");
     }
   }
 
   return (
     <main className="shell">
-      <section className="hero">
-        <span className="badge">AI VIDEO REPURPOSING</span>
-        <h1>Long video → many Shorts</h1>
-        <p>Paste a YouTube video and generate multiple vertical clips from the strongest moments.</p>
-      </section>
-
+      <section className="hero"><span className="badge">AI VIDEO REPURPOSING</span><h1>Long video → many Shorts</h1><p>Find the strongest moments, crop them vertically, and burn in readable captions.</p></section>
       <section className="card">
         <form onSubmit={submit}>
           <label htmlFor="url">YouTube URL</label>
@@ -49,16 +70,15 @@ export default function Home() {
             <div><label htmlFor="duration">Clip duration</label><select id="duration" value={duration} onChange={(e) => setDuration(e.target.value)}><option value="15-30">15–30 sec</option><option value="20-60">20–60 sec</option><option value="30-90">30–90 sec</option><option value="45-120">45–120 sec</option></select></div>
             <div><label>Output</label><input value="1080 × 1920" readOnly /></div>
           </div>
-          <button className="primary" disabled={busy}>{busy ? "Processing..." : "Generate Shorts"}</button>
-          {status && <div className="status">{status}</div>}
+          <button className="primary" disabled={busy}>{busy ? "Generating Shorts..." : "Generate Shorts"}</button>
+          {busy && <div className="progress"><div className="bar" style={{ width: `${progress}%` }} /></div>}
+          {status && <div className="status">{status} {busy && progress ? `${progress}%` : ""}</div>}
         </form>
       </section>
 
-      <section className="features">
-        <div className="feature"><h3>AI transcription</h3><p>Whisper converts speech into timestamped segments for clip analysis.</p></div>
-        <div className="feature"><h3>Batch rendering</h3><p>Generate many vertical MP4 clips from one long source.</p></div>
-        <div className="feature"><h3>Shorts format</h3><p>1080 × 1920 output with fast FFmpeg processing.</p></div>
-      </section>
+      {results.length > 0 && <section className="results"><div className="resultsHead"><h2>Generated Shorts</h2><span>{results.length} clips</span></div><div className="gallery">{results.map((clip) => <article className="clip" key={clip.file}><video src={`${API}/api/jobs/${jobId}/clips/${clip.file}`} controls preload="metadata" /><div className="clipBody"><b>Short {clip.rank}</b><small>Score {clip.score} · {Math.round(clip.end - clip.start)} sec</small><p>{clip.text}</p><a href={`${API}/api/jobs/${jobId}/clips/${clip.file}`} download>Download MP4</a></div></article>)}</div></section>}
+
+      <section className="features"><div className="feature"><h3>AI moment scoring</h3><p>Ranks transcript windows using hook language, questions, excitement, and speech density.</p></div><div className="feature"><h3>Animated-ready captions</h3><p>Word timestamps become short subtitle groups burned into each vertical clip.</p></div><div className="feature"><h3>Batch rendering</h3><p>Generate 5 to 50 Shorts from one source with a background worker.</p></div></section>
     </main>
   );
 }
