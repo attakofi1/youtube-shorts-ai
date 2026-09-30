@@ -81,10 +81,12 @@ def render_one(source, transcript, clip, index, job_dir, face_data):
 
 
 @celery_app.task(bind=True, name="create_shorts_job")
-def create_shorts_job(self, job_id, url, clips, min_duration, max_duration):
+def create_shorts_job(self, job_id, url, clips, min_duration, max_duration, source_path=None):
     job_dir = STORAGE / job_id
     job_dir.mkdir(parents=True, exist_ok=True)
-    source = download_video(url, job_dir)
+    source = Path(source_path) if source_path else download_video(url, job_dir)
+    if not source.is_file():
+        raise FileNotFoundError("Source video was not found")
     self.update_state(state="TRANSCRIBING", meta={"progress": 15, "message": "Transcribing speech with Whisper"})
     transcript = transcribe(source)
     (job_dir / "transcript.json").write_text(json.dumps(transcript, indent=2), encoding="utf-8")
