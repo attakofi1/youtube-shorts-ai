@@ -87,8 +87,25 @@ def render_clip(source, start, end, output, ass, face_data=None, remove_silence=
     audio_filter = "aresample=async=1"
     if remove_silence:
         audio_filter += ",silenceremove=stop_periods=1:stop_duration=0.6:stop_threshold=-38dB"
-    cmd = ["ffmpeg", "-y", "-ss", str(start), "-i", str(source), "-t", str(end - start), "-vf", vf, "-af", audio_filter, "-c:v", "libx264", "-preset", "veryfast", "-crf", "21", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", str(output)]
+    music_path = os.getenv("BACKGROUND_MUSIC_PATH", "")
+    if background_music and music_path and Path(music_path).is_file():
+        cmd = ["ffmpeg", "-y", "-ss", str(start), "-i", str(source), "-stream_loop", "-1", "-i", music_path, "-t", str(end - start), "-vf", vf, "-filter_complex", "[0:a]aresample=async=1[a0];[1:a]volume=0.10[a1];[a0][a1]amix=inputs=2:duration=first:dropout_transition=2[aout]", "-map", "0:v:0", "-map", "[aout]", "-c:v", "libx264", "-preset", "veryfast", "-crf", "21", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", str(output)]
+    else:
+        cmd = ["ffmpeg", "-y", "-ss", str(start), "-i", str(source), "-t", str(end - start), "-vf", vf, "-af", audio_filter, "-c:v", "libx264", "-preset", "veryfast", "-crf", "21", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", str(output)]
     subprocess.run(cmd, check=True)
+
+
+def generate_thumbnail(source, timestamp, title, output):
+    safe_title = title.replace("\\", "\\\\").replace(":", "\\:").replace("'", "\\'")
+    filter_text = (
+        "scale=1080:1920:force_original_aspect_ratio=increase,"
+        "crop=1080:1920,"
+        "drawbox=x=0:y=0:w=1080:h=1920:color=black@0.25:t=fill,"
+        f"drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:"
+        f"text='{safe_title[:70]}':fontcolor=white:fontsize=64:"
+        "x=70:y=1400:box=1:boxcolor=black@0.55:boxborderw=25"
+    )
+    subprocess.run(["ffmpeg", "-y", "-ss", str(timestamp), "-i", str(source), "-frames:v", "1", "-vf", filter_text, str(output)], check=True)
 
 
 def render_one(source, transcript, clip, index, job_dir, face_data, caption_style, remove_silence, background_music):
@@ -100,7 +117,9 @@ def render_one(source, transcript, clip, index, job_dir, face_data, caption_styl
     hook = clip.text.strip().split(". ")[0].strip()
     title = hook[:80] if hook else f"Short {index}"
     metadata, metadata_engine = generate_metadata(clip.text, index)
-    return {"start": clip.start, "end": clip.end, "text": clip.text, "score": round(clip.score, 2), "reason": clip.reason, "hook": hook, "title": metadata["title"] or title, "description": metadata["description"], "hashtags": metadata["hashtags"], "metadata_engine": metadata_engine, "file": output.name, "srt": ass.name, "rank": index}
+    thumbnail = job_dir / f"short_{index:02d}.jpg"
+    generate_thumbnail(source, clip.start, metadata["title"] or title, thumbnail)
+    return {"start": clip.start, "end": clip.end, "text": clip.text, "score": round(clip.score, 2), "reason": clip.reason, "hook": hook, "title": metadata["title"] or title, "description": metadata["description"], "hashtags": metadata["hashtags"], "metadata_engine": metadata_engine, "file": output.name, "thumbnail": thumbnail.name, "srt": ass.name, "rank": index}
 
 
 @celery_app.task(bind=True, name="create_shorts_job")
