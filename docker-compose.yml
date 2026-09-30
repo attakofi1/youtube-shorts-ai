@@ -23,8 +23,13 @@ services:
     environment:
       REDIS_URL: redis://redis:6379/0
       DATABASE_URL: postgresql://shorts:shorts@postgres:5432/shorts
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_CLIP_MODEL: ${OPENAI_CLIP_MODEL:-gpt-5.6-luna}
+      OPENAI_METADATA_MODEL: ${OPENAI_METADATA_MODEL:-gpt-5.6-luna}
+      BACKGROUND_MUSIC_PATH: /app/assets/background.mp3
     volumes:
       - ./storage:/app/storage
+      - ./assets:/app/assets
     depends_on:
       - redis
       - postgres
