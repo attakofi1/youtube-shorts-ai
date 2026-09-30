@@ -1,0 +1,15 @@
+node_modules/
+.next/
+__pycache__/
+*.pyc
+.venv/
+.env
+.env.*
+!.env.example
+uploads/
+outputs/
+tmp/
+*.mp4
+*.mov
+*.mkv
+*.webm
