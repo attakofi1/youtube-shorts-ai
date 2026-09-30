@@ -1,10 +1,11 @@
 from pathlib import Path
+import zipfile
 from uuid import uuid4
 
 from celery.result import AsyncResult
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field, HttpUrl
 
 from .tasks import create_shorts_job
@@ -57,3 +58,19 @@ def get_clip(job_id: str, filename: str):
     if not path.is_file() or path.parent != STORAGE / job_id or path.suffix.lower() != ".mp4":
         raise HTTPException(status_code=404, detail="Clip not found")
     return FileResponse(path, media_type="video/mp4", filename=safe_name)
+
+
+
+@app.get("/api/jobs/{job_id}/download")
+def download_job(job_id: str):
+    job_dir = STORAGE / job_id
+    if not job_dir.is_dir():
+        raise HTTPException(status_code=404, detail="Job not found")
+    zip_path = job_dir / "shorts_bundle.zip"
+    mp4_files = sorted(job_dir.glob("short_*.mp4"))
+    if not mp4_files:
+        raise HTTPException(status_code=404, detail="No generated Shorts available")
+    with zipfile.ZipFile(zip_path, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        for file in mp4_files:
+            archive.write(file, arcname=file.name)
+    return FileResponse(zip_path, media_type="application/zip", filename=f"{job_id}-shorts.zip")
