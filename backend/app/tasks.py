@@ -1,4 +1,5 @@
 import json
+import os
 import subprocess
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from pathlib import Path
@@ -62,6 +63,43 @@ def _crop_filter(face_data):
     return f"scale=-2:1920,crop=1080:1920:{x}:0,setsar=1"
 
 
+
+def generate_metadata(clip_text: str, rank: int):
+    api_key = os.getenv("OPENAI_API_KEY")
+    fallback_title = clip_text.strip().split(". ")[0].strip()[:80] or f"Short {rank}"
+    fallback = {
+        "title": fallback_title,
+        "description": clip_text.strip()[:500],
+        "hashtags": ["#shorts", "#viral", "#trending"],
+    }
+    if not api_key:
+        return fallback, "local"
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key)
+        prompt = (
+            "Create YouTube Shorts metadata for this clip. Return JSON only with "
+            "title, description, and hashtags. Make the title concise and curiosity-driven "
+            "without misleading claims. Description should summarize the clip naturally. "
+            "Return 5-8 relevant hashtags. No markdown.\n\nCLIP:\n" + clip_text
+        )
+        response = client.responses.create(
+            model=os.getenv("OPENAI_METADATA_MODEL", os.getenv("OPENAI_CLIP_MODEL", "gpt-5.6-luna")),
+            input=prompt,
+        )
+        data = json.loads(response.output_text.strip())
+        hashtags = data.get("hashtags", fallback["hashtags"])
+        if isinstance(hashtags, str):
+            hashtags = [x.strip() for x in hashtags.split() if x.strip()]
+        return {
+            "title": str(data.get("title", fallback["title"]))[:100],
+            "description": str(data.get("description", fallback["description"]))[:1000],
+            "hashtags": hashtags[:8],
+        }, "openai"
+    except Exception:
+        return fallback, "local-fallback"
+
+
 def render_clip(source, start, end, output, srt, face_data=None):
     crop = _crop_filter(face_data)
     subtitle_path = srt.as_posix().replace("'", "\\'")
@@ -77,7 +115,8 @@ def render_one(source, transcript, clip, index, job_dir, face_data):
     render_clip(source, clip.start, clip.end, output, srt, local_faces)
     hook = clip.text.strip().split(". ")[0].strip()
     title = hook[:80] if hook else f"Short {index}"
-    return {"start": clip.start, "end": clip.end, "text": clip.text, "score": round(clip.score, 2), "reason": clip.reason, "hook": hook, "title": title, "file": output.name, "srt": srt.name, "rank": index}
+    metadata, metadata_engine = generate_metadata(clip.text, index)
+    return {"start": clip.start, "end": clip.end, "text": clip.text, "score": round(clip.score, 2), "reason": clip.reason, "hook": hook, "title": metadata["title"] or title, "description": metadata["description"], "hashtags": metadata["hashtags"], "metadata_engine": metadata_engine, "file": output.name, "srt": srt.name, "rank": index}
 
 
 @celery_app.task(bind=True, name="create_shorts_job")
