@@ -6,6 +6,8 @@ services:
     environment:
       REDIS_URL: redis://redis:6379/0
       DATABASE_URL: postgresql://shorts:shorts@postgres:5432/shorts
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_CLIP_MODEL: ${OPENAI_CLIP_MODEL:-gpt-5.6-luna}
     volumes:
       - ./storage:/app/storage
     depends_on:
