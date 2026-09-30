@@ -54,3 +54,18 @@ YouTube download → Whisper transcription → local candidate ranking → optio
 The LLM stage uses the OpenAI Responses API when `OPENAI_API_KEY` is configured, with GPT-5.6 Luna as the default clip-selection model. OpenAI documents GPT-5.6 Luna as a cost-sensitive, high-volume model available through the Responses API. citeturn0search0
 
 Only process videos you own or have permission to use.
+
+
+## Advanced editing controls
+
+The dashboard now supports:
+- Bold, clean, and karaoke-style animated captions.
+- Face-position smoothing for more stable vertical framing.
+- Optional trailing-silence trimming.
+- Optional background music mixed at low volume when `assets/background.mp3` is supplied.
+- Automatic vertical thumbnail generation with the Short title.
+- AI title, description, and hashtag generation with local fallback.
+- Local video upload as well as YouTube URLs.
+- ZIP download for an entire batch.
+
+For background music, place a music file at `assets/background.mp3` and enable the option in the dashboard. Only use music you have the rights to use.
