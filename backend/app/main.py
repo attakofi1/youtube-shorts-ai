@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field, HttpUrl
 from .tasks import create_shorts_job
 from .worker import celery_app
 
-app = FastAPI(title="YouTube Shorts AI", version="0.2.0")
+app = FastAPI(title="YouTube Shorts AI", version="0.2.1")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 STORAGE = Path("/app/storage")
 STORAGE.mkdir(parents=True, exist_ok=True)
@@ -33,7 +33,7 @@ def create_job(request: CreateJobRequest):
     if request.min_duration > request.max_duration:
         raise HTTPException(status_code=400, detail="min_duration must not exceed max_duration")
     job_id = str(uuid4())
-    create_shorts_job.delay(job_id, str(request.youtube_url), request.clips, request.min_duration, request.max_duration)
+    create_shorts_job.apply_async(args=[job_id, str(request.youtube_url), request.clips, request.min_duration, request.max_duration], task_id=job_id)
     return {"job_id": job_id, "status": "queued"}
 
 
@@ -45,14 +45,15 @@ def job_status(job_id: str):
         payload.update(result.info)
     if result.successful():
         payload["result"] = result.result
-    if result.failed():
+    elif result.failed():
         payload["error"] = str(result.result)
     return payload
 
 
 @app.get("/api/jobs/{job_id}/clips/{filename}")
 def get_clip(job_id: str, filename: str):
-    path = STORAGE / job_id / filename
-    if not path.is_file() or path.parent != STORAGE / job_id:
+    safe_name = Path(filename).name
+    path = STORAGE / job_id / safe_name
+    if not path.is_file() or path.parent != STORAGE / job_id or path.suffix.lower() != ".mp4":
         raise HTTPException(status_code=404, detail="Clip not found")
-    return FileResponse(path, media_type="video/mp4", filename=filename)
+    return FileResponse(path, media_type="video/mp4", filename=safe_name)
