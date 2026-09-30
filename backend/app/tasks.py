@@ -80,6 +80,50 @@ def make_ass(transcript, start, end, output, style="bold"):
     output.write_text("\n".join(lines), encoding="utf-8")
 
 
+
+def _crop_filter(face_data):
+    if not face_data:
+        return "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1"
+    cx = sum(x["cx"] for x in face_data) / len(face_data)
+    x = f"max(0,min(iw-iw*9/16,{cx:.4f}*iw-iw*9/32))"
+    return f"scale=-2:1920,crop=1080:1920:{x}:0,setsar=1"
+
+
+def generate_metadata(clip_text: str, rank: int):
+    api_key = os.getenv("OPENAI_API_KEY")
+    fallback_title = clip_text.strip().split(". ")[0].strip()[:80] or f"Short {rank}"
+    fallback = {
+        "title": fallback_title,
+        "description": clip_text.strip()[:500],
+        "hashtags": ["#shorts", "#viral", "#trending"],
+    }
+    if not api_key:
+        return fallback, "local"
+    try:
+        from openai import OpenAI
+        client = OpenAI(api_key=api_key)
+        prompt = (
+            "Create YouTube Shorts metadata. Return JSON only with title, description, hashtags. "
+            "Make the title concise and curiosity-driven without misleading claims. "
+            "Description should summarize the clip naturally. Return 5-8 relevant hashtags. "
+            "No markdown.\\n\\nCLIP:\\n" + clip_text
+        )
+        response = client.responses.create(
+            model=os.getenv("OPENAI_METADATA_MODEL", os.getenv("OPENAI_CLIP_MODEL", "gpt-5.6-luna")),
+            input=prompt,
+        )
+        data = json.loads(response.output_text.strip())
+        hashtags = data.get("hashtags", fallback["hashtags"])
+        if isinstance(hashtags, str):
+            hashtags = [x.strip() for x in hashtags.split() if x.strip()]
+        return {
+            "title": str(data.get("title", fallback["title"]))[:100],
+            "description": str(data.get("description", fallback["description"]))[:1000],
+            "hashtags": hashtags[:8],
+        }, "openai"
+    except Exception:
+        return fallback, "local-fallback"
+
 def render_clip(source, start, end, output, ass, face_data=None, remove_silence=True, background_music=False):
     crop = _crop_filter(face_data)
     subtitle_path = ass.as_posix().replace("'", "\\'")
