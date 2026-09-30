@@ -2,18 +2,38 @@
 
 AI-powered long-video to Shorts pipeline.
 
-## Planned features
+## Windows one-click mode
+
+Docker is not required for the Windows-native mode.
+
+1. Install Python 3.11 or newer.
+2. Install Git.
+3. Clone this repository.
+4. Double-click `SETUP_WINDOWS.bat` once. It installs Node.js and FFmpeg through Windows Package Manager when available, creates the Python environment, and installs the required packages.
+5. Double-click `START_WINDOWS.bat`.
+6. The browser opens at `http://localhost:3000`.
+
+After setup, `START_WINDOWS.bat` is the normal one-click launcher. It starts a local FastAPI worker and the Next.js dashboard without Docker, Redis, Celery, or PostgreSQL.
+
+Optional OpenAI configuration goes in `.env` as `OPENAI_API_KEY=...`. Without a key, local clip ranking and fallback metadata generation are used.
+
+Optional music goes in `assets/background.mp3`. Only use music you have permission to use.
+
+## Features
 
 - YouTube URL or local video input
-- Transcript generation with Whisper
+- Whisper transcription
 - AI detection of high-value moments
 - Batch creation of multiple clips
 - 9:16 vertical reframing
-- Speaker/face-aware cropping
-- Animated subtitles
-- Hook, title, description and hashtag generation
+- Smoothed face-aware cropping
+- Bold, clean, and karaoke captions
+- Optional silence trimming
+- Optional background music
+- AI title, description and hashtag generation
+- Automatic thumbnails
 - Parallel FFmpeg rendering
-- Download individual clips or a ZIP
+- Individual MP4 downloads and ZIP download
 
 ## Architecture
 
@@ -21,51 +41,10 @@ AI-powered long-video to Shorts pipeline.
 - FastAPI backend
 - FFmpeg video processing
 - faster-whisper transcription
-- Redis/Celery job queue
-- PostgreSQL metadata store
-- Docker deployment
+- Local Windows ThreadPoolExecutor in one-click mode
+- Optional OpenAI Responses API
+- Docker/Celery/Redis/PostgreSQL remain available for server deployment
 
 ## Legal
 
 Only process videos you own or have permission to use. The application does not bypass YouTube access controls or copyright restrictions.
-
-
-## Run it on Windows 11
-
-1. Install Docker Desktop.
-2. Clone this repository.
-3. Copy `.env.example` to `.env`.
-4. Add your OpenAI API key to `.env` if you want LLM-powered clip selection. The app still works with local ranking without a key.
-5. Start everything:
-
-```bash
-docker compose up --build
-```
-
-6. Open `http://localhost:3000`.
-7. Paste a YouTube URL, choose the number and duration of Shorts, and click Generate Shorts.
-
-The API runs on `http://localhost:8000`.
-
-### Processing pipeline
-
-YouTube download → Whisper transcription → local candidate ranking → optional OpenAI semantic selection → face detection → vertical 1080×1920 crop → word-timed captions → parallel FFmpeg rendering → MP4 downloads.
-
-The LLM stage uses the OpenAI Responses API when `OPENAI_API_KEY` is configured, with GPT-5.6 Luna as the default clip-selection model. OpenAI documents GPT-5.6 Luna as a cost-sensitive, high-volume model available through the Responses API. citeturn0search0
-
-Only process videos you own or have permission to use.
-
-
-## Advanced editing controls
-
-The dashboard now supports:
-- Bold, clean, and karaoke-style animated captions.
-- Face-position smoothing for more stable vertical framing.
-- Optional trailing-silence trimming.
-- Optional background music mixed at low volume when `assets/background.mp3` is supplied.
-- Automatic vertical thumbnail generation with the Short title.
-- AI title, description, and hashtag generation with local fallback.
-- Local video upload as well as YouTube URLs.
-- ZIP download for an entire batch.
-
-For background music, place a music file at `assets/background.mp3` and enable the option in the dashboard. Only use music you have the rights to use.
