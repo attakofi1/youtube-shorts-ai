@@ -6,72 +6,8 @@ const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 type Clip = { file: string; thumbnail?: string; start: number; end: number; score: number; text: string; hook?: string; title?: string; description?: string; hashtags?: string[]; rank: number };
 
 export default function Home() {
-  const [url, setUrl] = useState("");
-  const [file, setFile] = useState<File | null>(null);
-  const [clips, setClips] = useState(10);
-  const [duration, setDuration] = useState("20-60");
-  const [status, setStatus] = useState("");
-  const [progress, setProgress] = useState(0);
-  const [jobId, setJobId] = useState("");
-  const [results, setResults] = useState<Clip[]>([]);
-  const [busy, setBusy] = useState(false);
-  const [captionStyle, setCaptionStyle] = useState("bold");
-  const [removeSilence, setRemoveSilence] = useState(true);
-  const [backgroundMusic, setBackgroundMusic] = useState(false);
-
-  useEffect(() => {
-    if (!jobId) return;
-    let stopped = false;
-    const poll = async () => {
-      try {
-        const response = await fetch(`${API}/api/jobs/${jobId}`, { cache: "no-store" });
-        const data = await response.json();
-        if (stopped) return;
-        setProgress(data.progress || (data.status === "SUCCESS" ? 100 : 0));
-        setStatus(data.message || data.status || "Processing...");
-        if (data.status === "SUCCESS") { setResults(data.result?.clips || []); setBusy(false); return; }
-        if (data.status === "FAILURE") { setBusy(false); setStatus(data.error || "Processing failed"); return; }
-        window.setTimeout(poll, 1800);
-      } catch { if (!stopped) window.setTimeout(poll, 3000); }
-    };
-    poll();
-    return () => { stopped = true; };
-  }, [jobId]);
-
-  async function submit(e: FormEvent) {
-    e.preventDefault(); setBusy(true); setResults([]); setProgress(0); setStatus("Queueing your video...");
-    try {
-      const [min, max] = duration.split("-").map(Number);
-      let response: Response;
-      if (file) {
-        const form = new FormData();
-        form.append("video", file);
-        form.append("clips", String(clips));
-        form.append("min_duration", String(min));
-        form.append("max_duration", String(max));
-        form.append("caption_style", captionStyle);
-        form.append("remove_silence", String(removeSilence));
-        form.append("background_music", String(backgroundMusic));
-        response = await fetch(`${API}/api/jobs/upload`, { method: "POST", body: form });
-      } else {
-        response = await fetch(`${API}/api/jobs`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ youtube_url: url, clips, min_duration: min, max_duration: max, caption_style: captionStyle, remove_silence: removeSilence, background_music: backgroundMusic }) });
-      }
-      const data = await response.json();
-      if (!response.ok) throw new Error(data.detail || "Failed to create job");
-      setJobId(data.job_id);
-    } catch (error) { setBusy(false); setStatus(error instanceof Error ? error.message : "Something went wrong"); }
-  }
-
-  return <main className="shell">
-    <section className="hero"><span className="badge">AI VIDEO REPURPOSING</span><h1>Long video → many Shorts</h1><p>AI finds strong moments, tracks the speaker, crops vertically, and adds captions.</p></section>
-    <section className="card"><form onSubmit={submit}>
-      <label htmlFor="url">YouTube URL</label><input id="url" value={url} onChange={(e) => { setUrl(e.target.value); if (e.target.value) setFile(null); }} placeholder="https://www.youtube.com/watch?v=..." disabled={!!file} required={!file} /><div className="or">or upload a video</div><input id="file" type="file" accept="video/mp4,video/quicktime,video/webm,video/x-matroska,video/x-m4v" onChange={(e) => { const selected = e.target.files?.[0] || null; setFile(selected); if (selected) setUrl(""); }} />
-      <div className="grid"><div><label htmlFor="clips">Number of Shorts</label><select id="clips" value={clips} onChange={(e) => setClips(Number(e.target.value))}>{[5,10,15,20,30,50].map(n => <option key={n} value={n}>{n} Shorts</option>)}</select></div><div><label htmlFor="duration">Clip duration</label><select id="duration" value={duration} onChange={(e) => setDuration(e.target.value)}><option value="15-30">15–30 sec</option><option value="20-60">20–60 sec</option><option value="30-90">30–90 sec</option><option value="45-120">45–120 sec</option></select></div><div><label htmlFor="captionStyle">Caption style</label><select id="captionStyle" value={captionStyle} onChange={(e) => setCaptionStyle(e.target.value)}><option value="bold">Bold</option><option value="clean">Clean</option><option value="karaoke">Karaoke</option></select></div><div><label>Output</label><input value="1080 × 1920" readOnly /></div></div><div className="options"><label><input type="checkbox" checked={removeSilence} onChange={(e) => setRemoveSilence(e.target.checked)} /> Remove long trailing silence</label><label><input type="checkbox" checked={backgroundMusic} onChange={(e) => setBackgroundMusic(e.target.checked)} /> Add background music</label></div>
-      <button className="primary" disabled={busy}>{busy ? "Generating Shorts..." : "Generate Shorts"}</button>
-      {busy && <div className="progress"><div className="bar" style={{ width: `${progress}%` }} /></div>}
-      {status && <div className="status">{status} {busy && progress ? `${progress}%` : ""}</div>}
-    </form></section>
-    {results.length > 0 && <section className="results"><div className="resultsHead"><h2>Generated Shorts</h2><span>{results.length} clips</span>{results.length > 0 && <a className="downloadAll" href={`${API}/api/jobs/${jobId}/download`}>Download all ZIP</a>}</div><div className="gallery">{results.map((clip) => <article className="clip" key={clip.file}>{clip.thumbnail && <img className="thumb" src={`${API}/api/jobs/${jobId}/thumbnails/${clip.thumbnail}`} alt={clip.title || "Short thumbnail"} />}<video src={`${API}/api/jobs/${jobId}/clips/${clip.file}`} controls preload="metadata" /><div className="clipBody"><b>{clip.title || `Short ${clip.rank}`}</b><small>Score {clip.score} · {Math.round(clip.end - clip.start)} sec</small><p>{clip.hook || clip.text}</p>{clip.description && <p className="metadata"><strong>Description:</strong> {clip.description}</p>}{clip.hashtags?.length ? <p className="metadata"><strong>Hashtags:</strong> {clip.hashtags.join(" ")}</p> : null}<a href={`${API}/api/jobs/${jobId}/clips/${clip.file}`} download>Download MP4</a></div></article>)}</div></section>}
-    <section className="features"><div className="feature"><h3>Smart framing</h3><p>Face detection keeps the main speaker inside the vertical frame.</p></div><div className="feature"><h3>Readable captions</h3><p>Whisper word timestamps create short subtitle groups automatically.</p></div><div className="feature"><h3>Parallel rendering</h3><p>Multiple clips render concurrently to reduce batch processing time.</p></div></section>
-  </main>;
+  const [url,setUrl]=useState(""); const [file,setFile]=useState<File|null>(null); const [clips,setClips]=useState(10); const [duration,setDuration]=useState("20-60"); const [status,setStatus]=useState(""); const [progress,setProgress]=useState(0); const [jobId,setJobId]=useState(""); const [results,setResults]=useState<Clip[]>([]); const [busy,setBusy]=useState(false); const [captionStyle,setCaptionStyle]=useState("bold"); const [removeSilence,setRemoveSilence]=useState(true); const [backgroundMusic,setBackgroundMusic]=useState(false);
+  useEffect(()=>{if(!jobId)return;let stopped=false;const poll=async()=>{try{const r=await fetch(`${API}/api/jobs/${jobId}`,{cache:"no-store"});const d=await r.json();if(stopped)return;setProgress(d.progress||((d.status==="COMPLETED"||d.status==="SUCCESS")?100:0));setStatus(d.message||d.status||"Processing...");if(d.status==="COMPLETED"||d.status==="SUCCESS"){setResults(d.result?.clips||[]);setBusy(false);return}if(d.status==="FAILED"||d.status==="FAILURE"){setBusy(false);setStatus(d.error||"Processing failed");return}setTimeout(poll,1800)}catch{if(!stopped)setTimeout(poll,3000)}};poll();return()=>{stopped=true}},[jobId]);
+  async function submit(e:FormEvent){e.preventDefault();setBusy(true);setResults([]);setProgress(0);setStatus("Starting your video...");try{const[min,max]=duration.split("-").map(Number);let r:Response;if(file){const f=new FormData();f.append("video",file);f.append("clips",String(clips));f.append("min_duration",String(min));f.append("max_duration",String(max));f.append("caption_style",captionStyle);f.append("remove_silence",String(removeSilence));f.append("background_music",String(backgroundMusic));r=await fetch(`${API}/api/jobs/upload`,{method:"POST",body:f})}else{r=await fetch(`${API}/api/jobs`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({youtube_url:url,clips,min_duration:min,max_duration:max,caption_style:captionStyle,remove_silence:removeSilence,background_music:backgroundMusic})})}const d=await r.json();if(!r.ok)throw Error(d.detail||"Failed to create job");setJobId(d.job_id)}catch(err){setBusy(false);setStatus(err instanceof Error?err.message:"Something went wrong")}}
+  return <main className="shell"><section className="hero"><span className="badge">AI VIDEO REPURPOSING</span><h1>Long video → many Shorts</h1><p>AI finds strong moments, tracks the speaker, crops vertically, and adds captions.</p></section><section className="card"><form onSubmit={submit}><label>YouTube URL</label><input value={url} onChange={e=>{setUrl(e.target.value);if(e.target.value)setFile(null)}} placeholder="https://www.youtube.com/watch?v=..." disabled={!!file} required={!file}/><div className="or">or upload a video</div><input type="file" accept="video/mp4,video/quicktime,video/webm,video/x-matroska,video/x-m4v" onChange={e=>{const x=e.target.files?.[0]||null;setFile(x);if(x)setUrl("")}}/><div className="grid"><div><label>Number of Shorts</label><select value={clips} onChange={e=>setClips(Number(e.target.value))}>{[5,10,15,20,30,50].map(n=><option key={n} value={n}>{n} Shorts</option>)}</select></div><div><label>Clip duration</label><select value={duration} onChange={e=>setDuration(e.target.value)}><option value="15-30">15–30 sec</option><option value="20-60">20–60 sec</option><option value="30-90">30–90 sec</option><option value="45-120">45–120 sec</option></select></div><div><label>Caption style</label><select value={captionStyle} onChange={e=>setCaptionStyle(e.target.value)}><option value="bold">Bold</option><option value="clean">Clean</option><option value="karaoke">Karaoke</option></select></div><div><label>Output</label><input value="1080 × 1920" readOnly/></div></div><div className="options"><label><input type="checkbox" checked={removeSilence} onChange={e=>setRemoveSilence(e.target.checked)}/> Remove long silence</label><label><input type="checkbox" checked={backgroundMusic} onChange={e=>setBackgroundMusic(e.target.checked)}/> Add background music</label></div><button className="primary" disabled={busy}>{busy?"Generating Shorts...":"Generate Shorts"}</button>{busy&&<div className="progress"><div className="bar" style={{width:`${progress}%`}}/></div>}{status&&<div className="status">{status} {busy&&progress?`${progress}%`:""}</div>}</form></section>{results.length>0&&<section className="results"><div className="resultsHead"><h2>Generated Shorts</h2><span>{results.length} clips</span><a className="downloadAll" href={`${API}/api/jobs/${jobId}/download`}>Download all ZIP</a></div><div className="gallery">{results.map(c=><article className="clip" key={c.file}>{c.thumbnail&&<img className="thumb" src={`${API}/api/jobs/${jobId}/thumbnails/${c.thumbnail}`} alt={c.title||"Short thumbnail"}/>}<video src={`${API}/api/jobs/${jobId}/clips/${c.file}`} controls preload="metadata"/><div className="clipBody"><b>{c.title||`Short ${c.rank}`}</b><small>Score {c.score} · {Math.round(c.end-c.start)} sec</small><p>{c.hook||c.text}</p>{c.description&&<p className="metadata"><strong>Description:</strong> {c.description}</p>}{c.hashtags?.length?<p className="metadata"><strong>Hashtags:</strong> {c.hashtags.join(" ")}</p>:null}<a href={`${API}/api/jobs/${jobId}/clips/${c.file}`} download>Download MP4</a></div></article>)}</div></section>}<section className="features"><div className="feature"><h3>Smart framing</h3><p>Face tracking keeps the speaker inside the vertical frame.</p></div><div className="feature"><h3>Captions</h3><p>Word-timed captions support bold, clean and karaoke styles.</p></div><div className="feature"><h3>Parallel rendering</h3><p>Multiple clips render concurrently to reduce batch time.</p></div></section></main>;
 }
