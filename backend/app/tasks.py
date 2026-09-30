@@ -75,7 +75,9 @@ def render_one(source, transcript, clip, index, job_dir, face_data):
     make_srt(transcript, clip.start, clip.end, srt)
     local_faces = [f for f in face_data if clip.start <= f["time"] <= clip.end]
     render_clip(source, clip.start, clip.end, output, srt, local_faces)
-    return {"start": clip.start, "end": clip.end, "text": clip.text, "score": round(clip.score, 2), "reason": clip.reason, "file": output.name, "srt": srt.name, "rank": index}
+    hook = clip.text.strip().split(". ")[0].strip()
+    title = hook[:80] if hook else f"Short {index}"
+    return {"start": clip.start, "end": clip.end, "text": clip.text, "score": round(clip.score, 2), "reason": clip.reason, "hook": hook, "title": title, "file": output.name, "srt": srt.name, "rank": index}
 
 
 @celery_app.task(bind=True, name="create_shorts_job")
