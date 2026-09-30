@@ -3,7 +3,7 @@ import zipfile
 from uuid import uuid4
 
 from celery.result import AsyncResult
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel, Field, HttpUrl
@@ -18,7 +18,7 @@ STORAGE.mkdir(parents=True, exist_ok=True)
 
 
 class CreateJobRequest(BaseModel):
-    youtube_url: HttpUrl
+    youtube_url: HttpUrl | None = None
     clips: int = Field(default=10, ge=1, le=50)
     min_duration: int = Field(default=20, ge=10, le=120)
     max_duration: int = Field(default=60, ge=15, le=180)
@@ -31,6 +31,8 @@ def health():
 
 @app.post("/api/jobs")
 def create_job(request: CreateJobRequest):
+    if request.youtube_url is None:
+        raise HTTPException(status_code=400, detail="youtube_url is required")
     if request.min_duration > request.max_duration:
         raise HTTPException(status_code=400, detail="min_duration must not exceed max_duration")
     job_id = str(uuid4())
@@ -74,3 +76,30 @@ def download_job(job_id: str):
         for file in mp4_files:
             archive.write(file, arcname=file.name)
     return FileResponse(zip_path, media_type="application/zip", filename=f"{job_id}-shorts.zip")
+
+
+
+@app.post("/api/jobs/upload")
+async def upload_job(
+    video: UploadFile = File(...),
+    clips: int = Form(10),
+    min_duration: int = Form(20),
+    max_duration: int = Form(60),
+):
+    if not video.filename:
+        raise HTTPException(status_code=400, detail="A video file is required")
+    if min_duration > max_duration:
+        raise HTTPException(status_code=400, detail="min_duration must not exceed max_duration")
+    allowed = {".mp4", ".mov", ".mkv", ".webm", ".m4v"}
+    suffix = Path(video.filename).suffix.lower()
+    if suffix not in allowed:
+        raise HTTPException(status_code=400, detail="Unsupported video format")
+    job_id = str(uuid4())
+    job_dir = STORAGE / job_id
+    job_dir.mkdir(parents=True, exist_ok=True)
+    source = job_dir / f"source{suffix}"
+    with source.open("wb") as output:
+        while chunk := await video.read(1024 * 1024):
+            output.write(chunk)
+    create_shorts_job.apply_async(args=[job_id, None, clips, min_duration, max_duration, str(source)], task_id=job_id)
+    return {"job_id": job_id, "status": "queued", "source": "upload"}
