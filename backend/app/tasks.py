@@ -6,7 +6,7 @@ from pathlib import Path
 import yt_dlp
 from faster_whisper import WhisperModel
 
-from .content_ai import rank_windows
+from .llm_selector import select_with_llm
 from .smart_crop import detect_faces
 from .worker import celery_app
 
@@ -87,9 +87,10 @@ def create_shorts_job(self, job_id, url, clips, min_duration, max_duration):
     transcript = transcribe(source)
     (job_dir / "transcript.json").write_text(json.dumps(transcript, indent=2), encoding="utf-8")
     self.update_state(state="ANALYZING", meta={"progress": 30, "message": "Finding hooks, stories, questions and complete thoughts"})
-    selected = rank_windows(transcript, clips, min_duration, max_duration)
+    selected, selection_engine = select_with_llm(transcript, clips, min_duration, max_duration)
     face_data = detect_faces(source, sample_seconds=2.0)
     (job_dir / "face_tracking.json").write_text(json.dumps(face_data, indent=2), encoding="utf-8")
+    (job_dir / "selection.json").write_text(json.dumps({"engine": selection_engine, "count": len(selected)}, indent=2), encoding="utf-8")
     self.update_state(state="RENDERING", meta={"progress": 40, "message": f"Rendering {len(selected)} Shorts in parallel"})
     manifest = []
     workers = min(4, max(1, len(selected)))
@@ -102,4 +103,4 @@ def create_shorts_job(self, job_id, url, clips, min_duration, max_duration):
             self.update_state(state="RENDERING", meta={"progress": 40 + int(55 * done / max(1, len(selected))), "message": f"Rendered {done}/{len(selected)} Shorts"})
     manifest.sort(key=lambda x: x["rank"])
     (job_dir / "manifest.json").write_text(json.dumps(manifest, indent=2), encoding="utf-8")
-    return {"job_id": job_id, "clips": manifest, "status": "completed"}
+    return {"job_id": job_id, "clips": manifest, "selection_engine": selection_engine, "status": "completed"}
