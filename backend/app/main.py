@@ -22,6 +22,9 @@ class CreateJobRequest(BaseModel):
     clips: int = Field(default=10, ge=1, le=50)
     min_duration: int = Field(default=20, ge=10, le=120)
     max_duration: int = Field(default=60, ge=15, le=180)
+    caption_style: str = Field(default="bold", pattern="^(bold|clean|karaoke)$")
+    remove_silence: bool = True
+    background_music: bool = False
 
 
 @app.get("/health")
@@ -36,7 +39,7 @@ def create_job(request: CreateJobRequest):
     if request.min_duration > request.max_duration:
         raise HTTPException(status_code=400, detail="min_duration must not exceed max_duration")
     job_id = str(uuid4())
-    create_shorts_job.apply_async(args=[job_id, str(request.youtube_url), request.clips, request.min_duration, request.max_duration], task_id=job_id)
+    create_shorts_job.apply_async(args=[job_id, str(request.youtube_url), request.clips, request.min_duration, request.max_duration, None, request.caption_style, request.remove_silence, request.background_music], task_id=job_id)
     return {"job_id": job_id, "status": "queued"}
 
 
@@ -85,6 +88,9 @@ async def upload_job(
     clips: int = Form(10),
     min_duration: int = Form(20),
     max_duration: int = Form(60),
+    caption_style: str = Form("bold"),
+    remove_silence: bool = Form(True),
+    background_music: bool = Form(False),
 ):
     if not video.filename:
         raise HTTPException(status_code=400, detail="A video file is required")
@@ -101,5 +107,5 @@ async def upload_job(
     with source.open("wb") as output:
         while chunk := await video.read(1024 * 1024):
             output.write(chunk)
-    create_shorts_job.apply_async(args=[job_id, None, clips, min_duration, max_duration, str(source)], task_id=job_id)
+    create_shorts_job.apply_async(args=[job_id, None, clips, min_duration, max_duration, str(source), caption_style, remove_silence, background_music], task_id=job_id)
     return {"job_id": job_id, "status": "queued", "source": "upload"}
