@@ -8,7 +8,6 @@ echo   YouTube Shorts AI - Windows Setup
 echo ================================================
 echo.
 
-REM Always run from the folder containing this script.
 set "ROOT=%~dp0"
 cd /d "%ROOT%"
 
@@ -29,7 +28,6 @@ if errorlevel 1 (
   )
 )
 
-REM Refresh PATH for common Python locations after winget installation.
 set "PATH=%LocalAppData%\Programs\Python\Python312;%LocalAppData%\Programs\Python\Python312\Scripts;%PATH%"
 
 py -3 --version >nul 2>&1
@@ -42,43 +40,63 @@ if errorlevel 1 (
 )
 
 REM -----------------------------
-REM Verify the project structure
+REM Find requirements file
 REM -----------------------------
 set "REQ=%ROOT%backend\requirements-windows.txt"
 
+if exist "%REQ%" goto REQUIREMENTS_READY
+
+REM Some GitHub ZIP layouts place the requirements file at the repository root.
+if exist "%ROOT%requirements-windows.txt" (
+  echo.
+  echo Found requirements-windows.txt at the repository root.
+  echo Copying it to the expected backend folder...
+  if not exist "%ROOT%backend" mkdir "%ROOT%backend"
+  copy /Y "%ROOT%requirements-windows.txt" "%REQ%" >nul
+  if exist "%REQ%" goto REQUIREMENTS_READY
+)
+
+REM Search all project folders.
+echo.
+echo requirements-windows.txt was not found in the expected location:
+echo %REQ%
+echo.
+echo Searching the project for the file...
+
+set "FOUND_REQ="
+for /r "%ROOT%" %%F in (requirements-windows.txt) do (
+  if not defined FOUND_REQ set "FOUND_REQ=%%F"
+)
+
+if defined FOUND_REQ (
+  echo Found it here:
+  echo !FOUND_REQ!
+  echo Copying it to the expected backend folder...
+  if not exist "%ROOT%backend" mkdir "%ROOT%backend"
+  copy /Y "!FOUND_REQ!" "%REQ%" >nul
+  if exist "%REQ%" goto REQUIREMENTS_READY
+)
+
+REM Last resort: download the official file directly.
+echo.
+echo The requirements file is missing locally.
+echo Downloading the official project copy...
+if not exist "%ROOT%backend" mkdir "%ROOT%backend"
+powershell -NoProfile -ExecutionPolicy Bypass -Command "try { Invoke-WebRequest -UseBasicParsing -Uri 'https://raw.githubusercontent.com/attakofi1/youtube-shorts-ai/main/backend/requirements-windows.txt' -OutFile '%REQ%' -ErrorAction Stop } catch { exit 1 }"
+
 if not exist "%REQ%" (
   echo.
-  echo requirements-windows.txt was not found in the expected location:
-  echo %REQ%
-  echo.
-  echo Searching the project for the file...
-
-  for /r "%ROOT%" %%F in (requirements-windows.txt) do (
-    if not defined FOUND_REQ set "FOUND_REQ=%%F"
-  )
-
-  if defined FOUND_REQ (
-    echo Found it here:
-    echo !FOUND_REQ!
-    for %%D in ("!FOUND_REQ!") do set "FOUND_DIR=%%~dpD"
-    if /I not "!FOUND_DIR!"=="%ROOT%backend\" (
-      echo Using the discovered requirements file.
-      set "REQ=!FOUND_REQ!"
-    )
-  ) else (
-    echo File is missing. Downloading the official project copy...
-    powershell -NoProfile -ExecutionPolicy Bypass -Command "try { Invoke-WebRequest -UseBasicParsing -Uri 'https://raw.githubusercontent.com/attakofi1/youtube-shorts-ai/main/backend/requirements-windows.txt' -OutFile '%REQ%' -ErrorAction Stop } catch { exit 1 }"
-    if errorlevel 1 (
-      echo.
-      echo Could not download requirements-windows.txt automatically.
-      echo Please make sure you downloaded the complete repository ZIP from:
-      echo https://github.com/attakofi1/youtube-shorts-ai
-      pause
-      exit /b 1
-    )
-    echo requirements-windows.txt downloaded successfully.
-  )
+  echo Could not obtain requirements-windows.txt automatically.
+  echo Please download the complete repository ZIP from:
+  echo https://github.com/attakofi1/youtube-shorts-ai
+  pause
+  exit /b 1
 )
+
+:REQUIREMENTS_READY
+echo.
+echo Requirements file ready:
+echo %REQ%
 
 REM -----------------------------
 REM Check / install Node.js
@@ -94,9 +112,6 @@ if errorlevel 1 (
     pause
     exit /b 1
   )
-  echo.
-  echo Node.js was installed. If this window still cannot find node,
-  echo close it and run SETUP_WINDOWS.bat again.
   set "PATH=%ProgramFiles%\nodejs;%PATH%"
 )
 
