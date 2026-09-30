@@ -28,99 +28,83 @@ def transcribe(video: Path):
     return [{"start": float(s.start), "end": float(s.end), "text": s.text.strip(), "words": [{"start": float(w.start), "end": float(w.end), "text": w.word.strip()} for w in (s.words or [])]} for s in segments]
 
 
-def _srt_time(seconds):
-    ms = int(max(0, seconds) * 1000)
-    h, ms = divmod(ms, 3600000)
-    m, ms = divmod(ms, 60000)
-    s, ms = divmod(ms, 1000)
-    return f"{h:02d}:{m:02d}:{s:02d},{ms:03d}"
+def _ass_time(seconds):
+    cs = int(max(0, seconds) * 100)
+    h, cs = divmod(cs, 360000)
+    m, cs = divmod(cs, 6000)
+    s, cs = divmod(cs, 100)
+    return f"{h}:{m:02d}:{s:02d}.{cs:02d}"
 
 
-def make_srt(transcript, start, end, output):
-    entries, number = [], 1
+def make_ass(transcript, start, end, output, style="bold"):
+    styles = {
+        "bold": ("Arial", 18, "&H00FFFFFF", "&H00000000", 3),
+        "clean": ("Arial", 16, "&H00FFFFFF", "&H66000000", 2),
+        "karaoke": ("Arial", 20, "&H0000FFFF", "&H00000000", 4),
+    }
+    font, size, primary, outline, border = styles.get(style, styles["bold"])
+    lines = [
+        "[Script Info]",
+        "ScriptType: v4.00+",
+        "PlayResX: 1080",
+        "PlayResY: 1920",
+        "",
+        "[V4+ Styles]",
+        "Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding",
+        f"Style: Default,{font},{size},{primary},&H000000FF,{outline},&H99000000,-1,0,0,0,100,100,0,0,1,{border},1,2,40,40,130,1",
+        "",
+        "[Events]",
+        "Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text",
+    ]
     for seg in transcript:
         if seg["end"] <= start or seg["start"] >= end:
             continue
         words = [w for w in seg.get("words", []) if w["end"] > start and w["start"] < end]
-        for i in range(0, len(words), 6):
-            group = words[i:i + 6]
+        for i in range(0, len(words), 5):
+            group = words[i:i + 5]
             if not group:
                 continue
-            a = max(start, group[0]["start"]) - start
-            b = min(end, group[-1]["end"]) - start
-            text = " ".join(w["text"] for w in group).strip()
-            if text and b > a:
-                entries.append(f"{number}\n{_srt_time(a)} --> {_srt_time(b)}\n{text}\n")
-                number += 1
-    output.write_text("\n".join(entries), encoding="utf-8")
+            aa = max(start, group[0]["start"]) - start
+            bb = min(end, group[-1]["end"]) - start
+            if bb <= aa:
+                continue
+            if style == "karaoke":
+                parts = []
+                for w in group:
+                    dur = max(1, int((min(end, w["end"]) - max(start, w["start"])) * 100 / 10))
+                    parts.append("{\\kf" + str(dur) + "}" + w["text"].replace("{", "").replace("}", ""))
+                text = " ".join(parts)
+            else:
+                text = " ".join(w["text"].replace("{", "").replace("}", "") for w in group)
+            lines.append(f"Dialogue: 0,{_ass_time(aa)},{_ass_time(bb)},Default,,0,0,0,,{text}")
+    output.write_text("\n".join(lines), encoding="utf-8")
 
 
-def _crop_filter(face_data):
-    if not face_data:
-        return "scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,setsar=1"
-    cx = sum(x["cx"] for x in face_data) / len(face_data)
-    x = f"max(0,min(iw-iw*9/16,{cx:.4f}*iw-iw*9/32))"
-    return f"scale=-2:1920,crop=1080:1920:{x}:0,setsar=1"
-
-
-
-def generate_metadata(clip_text: str, rank: int):
-    api_key = os.getenv("OPENAI_API_KEY")
-    fallback_title = clip_text.strip().split(". ")[0].strip()[:80] or f"Short {rank}"
-    fallback = {
-        "title": fallback_title,
-        "description": clip_text.strip()[:500],
-        "hashtags": ["#shorts", "#viral", "#trending"],
-    }
-    if not api_key:
-        return fallback, "local"
-    try:
-        from openai import OpenAI
-        client = OpenAI(api_key=api_key)
-        prompt = (
-            "Create YouTube Shorts metadata for this clip. Return JSON only with "
-            "title, description, and hashtags. Make the title concise and curiosity-driven "
-            "without misleading claims. Description should summarize the clip naturally. "
-            "Return 5-8 relevant hashtags. No markdown.\n\nCLIP:\n" + clip_text
-        )
-        response = client.responses.create(
-            model=os.getenv("OPENAI_METADATA_MODEL", os.getenv("OPENAI_CLIP_MODEL", "gpt-5.6-luna")),
-            input=prompt,
-        )
-        data = json.loads(response.output_text.strip())
-        hashtags = data.get("hashtags", fallback["hashtags"])
-        if isinstance(hashtags, str):
-            hashtags = [x.strip() for x in hashtags.split() if x.strip()]
-        return {
-            "title": str(data.get("title", fallback["title"]))[:100],
-            "description": str(data.get("description", fallback["description"]))[:1000],
-            "hashtags": hashtags[:8],
-        }, "openai"
-    except Exception:
-        return fallback, "local-fallback"
-
-
-def render_clip(source, start, end, output, srt, face_data=None):
+def render_clip(source, start, end, output, ass, face_data=None, remove_silence=True, background_music=False):
     crop = _crop_filter(face_data)
-    subtitle_path = srt.as_posix().replace("'", "\\'")
-    vf = crop + ",subtitles='" + subtitle_path + "':force_style='FontName=Arial,FontSize=18,PrimaryColour=&H00FFFFFF,OutlineColour=&H00000000,BorderStyle=1,Outline=3,Shadow=1,Alignment=2,MarginV=120'"
-    subprocess.run(["ffmpeg", "-y", "-ss", str(start), "-i", str(source), "-t", str(end - start), "-vf", vf, "-c:v", "libx264", "-preset", "veryfast", "-crf", "21", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", str(output)], check=True)
+    subtitle_path = ass.as_posix().replace("'", "\\'")
+    vf = crop + ",subtitles='" + subtitle_path + "'"
+    audio_filter = "aresample=async=1"
+    if remove_silence:
+        audio_filter += ",silenceremove=stop_periods=1:stop_duration=0.6:stop_threshold=-38dB"
+    cmd = ["ffmpeg", "-y", "-ss", str(start), "-i", str(source), "-t", str(end - start), "-vf", vf, "-af", audio_filter, "-c:v", "libx264", "-preset", "veryfast", "-crf", "21", "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", str(output)]
+    subprocess.run(cmd, check=True)
 
 
-def render_one(source, transcript, clip, index, job_dir, face_data):
-    srt = job_dir / f"short_{index:02d}.srt"
+def render_one(source, transcript, clip, index, job_dir, face_data, caption_style, remove_silence, background_music):
+    ass = job_dir / f"short_{index:02d}.ass"
     output = job_dir / f"short_{index:02d}.mp4"
-    make_srt(transcript, clip.start, clip.end, srt)
+    make_ass(transcript, clip.start, clip.end, ass, caption_style)
     local_faces = [f for f in face_data if clip.start <= f["time"] <= clip.end]
-    render_clip(source, clip.start, clip.end, output, srt, local_faces)
+    render_clip(source, clip.start, clip.end, output, ass, local_faces, remove_silence, background_music)
     hook = clip.text.strip().split(". ")[0].strip()
     title = hook[:80] if hook else f"Short {index}"
     metadata, metadata_engine = generate_metadata(clip.text, index)
-    return {"start": clip.start, "end": clip.end, "text": clip.text, "score": round(clip.score, 2), "reason": clip.reason, "hook": hook, "title": metadata["title"] or title, "description": metadata["description"], "hashtags": metadata["hashtags"], "metadata_engine": metadata_engine, "file": output.name, "srt": srt.name, "rank": index}
+    return {"start": clip.start, "end": clip.end, "text": clip.text, "score": round(clip.score, 2), "reason": clip.reason, "hook": hook, "title": metadata["title"] or title, "description": metadata["description"], "hashtags": metadata["hashtags"], "metadata_engine": metadata_engine, "file": output.name, "srt": ass.name, "rank": index}
 
 
 @celery_app.task(bind=True, name="create_shorts_job")
-def create_shorts_job(self, job_id, url, clips, min_duration, max_duration, source_path=None):
+def create_shorts_job(self, job_id, url, clips, min_duration, max_duration, source_path=None, caption_style="bold", remove_silence=True, background_music=False):
     job_dir = STORAGE / job_id
     job_dir.mkdir(parents=True, exist_ok=True)
     source = Path(source_path) if source_path else download_video(url, job_dir)
@@ -138,7 +122,7 @@ def create_shorts_job(self, job_id, url, clips, min_duration, max_duration, sour
     manifest = []
     workers = min(4, max(1, len(selected)))
     with ThreadPoolExecutor(max_workers=workers) as executor:
-        futures = {executor.submit(render_one, source, transcript, clip, index, job_dir, face_data): index for index, clip in enumerate(selected, 1)}
+        futures = {executor.submit(render_one, source, transcript, clip, index, job_dir, face_data, caption_style, remove_silence, background_music): index for index, clip in enumerate(selected, 1)}
         done = 0
         for future in as_completed(futures):
             manifest.append(future.result())
