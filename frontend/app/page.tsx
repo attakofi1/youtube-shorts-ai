@@ -3,7 +3,7 @@
 import { FormEvent, useEffect, useState } from "react";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-type Clip = { file: string; start: number; end: number; score: number; text: string; hook?: string; title?: string; rank: number };
+type Clip = { file: string; start: number; end: number; score: number; text: string; hook?: string; title?: string; description?: string; hashtags?: string[]; rank: number };
 
 export default function Home() {
   const [url, setUrl] = useState("");
@@ -65,7 +65,7 @@ export default function Home() {
       {busy && <div className="progress"><div className="bar" style={{ width: `${progress}%` }} /></div>}
       {status && <div className="status">{status} {busy && progress ? `${progress}%` : ""}</div>}
     </form></section>
-    {results.length > 0 && <section className="results"><div className="resultsHead"><h2>Generated Shorts</h2><span>{results.length} clips</span>{results.length > 0 && <a className="downloadAll" href={`${API}/api/jobs/${jobId}/download`}>Download all ZIP</a>}</div><div className="gallery">{results.map((clip) => <article className="clip" key={clip.file}><video src={`${API}/api/jobs/${jobId}/clips/${clip.file}`} controls preload="metadata" /><div className="clipBody"><b>{clip.title || `Short ${clip.rank}`}</b><small>Score {clip.score} · {Math.round(clip.end - clip.start)} sec</small><p>{clip.hook || clip.text}</p><a href={`${API}/api/jobs/${jobId}/clips/${clip.file}`} download>Download MP4</a></div></article>)}</div></section>}
+    {results.length > 0 && <section className="results"><div className="resultsHead"><h2>Generated Shorts</h2><span>{results.length} clips</span>{results.length > 0 && <a className="downloadAll" href={`${API}/api/jobs/${jobId}/download`}>Download all ZIP</a>}</div><div className="gallery">{results.map((clip) => <article className="clip" key={clip.file}><video src={`${API}/api/jobs/${jobId}/clips/${clip.file}`} controls preload="metadata" /><div className="clipBody"><b>{clip.title || `Short ${clip.rank}`}</b><small>Score {clip.score} · {Math.round(clip.end - clip.start)} sec</small><p>{clip.hook || clip.text}</p>{clip.description && <p className="metadata"><strong>Description:</strong> {clip.description}</p>}{clip.hashtags?.length ? <p className="metadata"><strong>Hashtags:</strong> {clip.hashtags.join(" ")}</p> : null}<a href={`${API}/api/jobs/${jobId}/clips/${clip.file}`} download>Download MP4</a></div></article>)}</div></section>}
     <section className="features"><div className="feature"><h3>Smart framing</h3><p>Face detection keeps the main speaker inside the vertical frame.</p></div><div className="feature"><h3>Readable captions</h3><p>Whisper word timestamps create short subtitle groups automatically.</p></div><div className="feature"><h3>Parallel rendering</h3><p>Multiple clips render concurrently to reduce batch processing time.</p></div></section>
   </main>;
 }
