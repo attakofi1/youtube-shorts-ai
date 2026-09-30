@@ -109,3 +109,12 @@ async def upload_job(
             output.write(chunk)
     create_shorts_job.apply_async(args=[job_id, None, clips, min_duration, max_duration, str(source), caption_style, remove_silence, background_music], task_id=job_id)
     return {"job_id": job_id, "status": "queued", "source": "upload"}
+
+
+@app.get("/api/jobs/{job_id}/thumbnails/{filename}")
+def get_thumbnail(job_id: str, filename: str):
+    safe_name = Path(filename).name
+    path = STORAGE / job_id / safe_name
+    if not path.is_file() or path.parent != STORAGE / job_id or path.suffix.lower() != ".jpg":
+        raise HTTPException(status_code=404, detail="Thumbnail not found")
+    return FileResponse(path, media_type="image/jpeg", filename=safe_name)
