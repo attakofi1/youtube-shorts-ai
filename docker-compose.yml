@@ -1,0 +1,49 @@
+services:
+  api:
+    build: ./backend
+    ports:
+      - "8000:8000"
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql://shorts:shorts@postgres:5432/shorts
+    volumes:
+      - ./storage:/app/storage
+    depends_on:
+      - redis
+      - postgres
+
+  worker:
+    build: ./backend
+    command: celery -A app.worker.celery_app worker --loglevel=INFO --concurrency=2
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      DATABASE_URL: postgresql://shorts:shorts@postgres:5432/shorts
+    volumes:
+      - ./storage:/app/storage
+    depends_on:
+      - redis
+      - postgres
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000"
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:8000
+    depends_on:
+      - api
+
+  redis:
+    image: redis:7-alpine
+
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: shorts
+      POSTGRES_PASSWORD: shorts
+      POSTGRES_DB: shorts
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+
+volumes:
+  postgres_data:
